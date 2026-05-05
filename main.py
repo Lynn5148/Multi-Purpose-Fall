@@ -2,7 +2,7 @@ import os
 import json
 import asyncio
 from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import *
 from fonts import convert_font
 from datetime import datetime, timedelta
@@ -32,7 +32,7 @@ def get_user(user_id):
     db = load_db()
     uid = str(user_id)
     if uid not in db:
-        db[uid] = {"premium": False, "premium_expiry": None, "thumbnail": None, "usage": {"rename": 0, "font": 0}}
+        db[uid] = {"premium": False, "premium_expiry": None, "thumbnail": None}
         save_db(db)
     return db[uid]
 
@@ -69,22 +69,22 @@ def main_menu_kb():
 
 def font_kb():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("𝗦𝗮𝗻𝘀 𝗕𝗼𝗹𝗱", callback_data="font_sans_bold"),
-         InlineKeyboardButton("𝙎𝙖𝙣𝙨 𝘽𝙄", callback_data="font_sans_bold_italic"),
-         InlineKeyboardButton("𝘚𝘢𝘯𝘀 𝘐𝘵𝘢𝘭𝘪𝘤", callback_data="font_sans_italic")],
-        [InlineKeyboardButton("𝐒𝐞𝐫𝐢𝐟 𝐁𝐨𝐥𝐝", callback_data="font_serif_bold"),
-         InlineKeyboardButton("𝑩𝒐𝒍𝒅 𝑰𝒕𝒂𝒍𝒊𝒄", callback_data="font_bold_italic_serif"),
-         InlineKeyboardButton("𝙼𝚘𝚗𝚘𝚜𝚙𝚊𝚌𝚎", callback_data="font_mono")],
-        [InlineKeyboardButton("ꜱᴍᴀʟʟ ᴄᴀᴘꜱ", callback_data="font_small_caps"),
-         InlineKeyboardButton("Mɪxed Cᴀps", callback_data="font_mixed_caps"),
-         InlineKeyboardButton("𝘐𝘵𝘢𝘭𝘪𝘤 𝘚𝘦𝘳𝘪𝘧", callback_data="font_italic_serif")],
-        [InlineKeyboardButton("𝓒𝓾𝓻𝓼𝓲𝓿𝓮", callback_data="font_cursive"),
-         InlineKeyboardButton("Ｆｕｌｌｗｉｄｔｈ", callback_data="font_fullwidth"),
-         InlineKeyboardButton("ᴮᵘᵇᵇˡᵉ", callback_data="font_superscript")],
-        [InlineKeyboardButton("𝔉𝔯𝔞𝔨𝔱𝔲𝔯", callback_data="font_fraktur"),
-         InlineKeyboardButton("𝕺𝖑𝖉 𝕰𝖓𝖌𝖑𝖎𝖘𝖍", callback_data="font_gothic"),
-         InlineKeyboardButton("🅑🅛🅞🅒🅚", callback_data="font_block")],
-        [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
+        [InlineKeyboardButton("𝗛𝗲𝗮𝘃𝗲𝗻𝗙𝗮𝗹𝗹", callback_data="font_sans_bold"),
+         InlineKeyboardButton("𝙃𝙚𝙖𝙫𝙚𝙣𝙁𝙖𝙡𝙡", callback_data="font_sans_bold_italic"),
+         InlineKeyboardButton("𝘏𝘦𝘢𝘷𝘦𝘯𝘍𝘢𝘭𝘭", callback_data="font_sans_italic")],
+        [InlineKeyboardButton("𝐇𝐞𝐚𝐯𝐞𝐧𝐅𝐚𝐥𝐥", callback_data="font_serif_bold"),
+         InlineKeyboardButton("𝑯𝒆𝒂𝒗𝒆𝒏𝑭𝒂𝒍𝒍", callback_data="font_bold_italic_serif"),
+         InlineKeyboardButton("𝙷𝚎𝚊𝚟𝚎𝚗𝙵𝚊𝚕𝚕", callback_data="font_mono")],
+        [InlineKeyboardButton("ʜᴇᴀᴠᴇɴꜰᴀʟʟ", callback_data="font_small_caps"),
+         InlineKeyboardButton("HᴇᴀᴠᴇɴFᴀʟʟ", callback_data="font_mixed_caps"),
+         InlineKeyboardButton("𝘏𝘦𝘢𝘷𝘦𝘯𝘍𝘢𝘭𝘭", callback_data="font_italic_serif")],
+        [InlineKeyboardButton("𝓗𝓮𝓪𝓿𝓮𝓷𝓕𝓪𝓵𝓵", callback_data="font_cursive"),
+         InlineKeyboardButton("ＨｅａｖｅｎＦａｌｌ", callback_data="font_fullwidth"),
+         InlineKeyboardButton("ᴴᵉᵃᵛᵉⁿᶠᵃˡˡ", callback_data="font_superscript")],
+        [InlineKeyboardButton("𝔥𝔢𝔞𝔳𝔢𝔫𝔣𝔞𝔩𝔩", callback_data="font_fraktur"),
+         InlineKeyboardButton("𝕳𝖊𝖆𝖛𝖊𝖓𝕱𝖆𝖑𝖑", callback_data="font_gothic"),
+         InlineKeyboardButton("🅗🅔🅐🅥🅔🅝🅕🅐🅛🅛", callback_data="font_block")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="back_main")]
     ])
 
 def rename_format_kb():
@@ -105,7 +105,6 @@ def premium_kb():
 # ─────────────────────────────────────────
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
-    user = get_user(message.from_user.id)
     badge = "👑 **PREMIUM**" if is_premium(message.from_user.id) else "🆓 **FREE**"
     await message.reply(
         f"✨ **Welcome to HeavenFall Utility Bot** ✨\n\n"
@@ -143,18 +142,22 @@ async def cb_thumbnail(client, callback_query):
     await callback_query.message.edit_text(
         "🖼️ **Set Thumbnail**\n\n"
         "Send me a photo to use as your default thumbnail.\n"
-        "It will be applied to all your renamed PDFs automatically.",
+        "It will be applied to all your renamed files automatically.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_main")]])
     )
 
 @app.on_callback_query(filters.regex("^clear_thumb$"))
 async def cb_clear_thumb(client, callback_query):
-    user = get_user(callback_query.from_user.id)
+    uid = callback_query.from_user.id
+    user = get_user(uid)
+    old_path = user.get("thumbnail")
+    if old_path and os.path.exists(old_path):
+        os.remove(old_path)
     user["thumbnail"] = None
-    save_user(callback_query.from_user.id, user)
+    save_user(uid, user)
     await callback_query.answer("✅ Thumbnail cleared!", show_alert=True)
     await callback_query.message.edit_text(
-        "✅ Thumbnail removed.\n\nYour files will be sent without a custom thumbnail.",
+        "✅ Thumbnail removed.",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
     )
 
@@ -163,11 +166,9 @@ async def cb_premium(client, callback_query):
     uid = callback_query.from_user.id
     if is_premium(uid):
         user = get_user(uid)
-        expiry = user.get("premium_expiry", "Lifetime")
+        expiry = user.get("premium_expiry") or "Lifetime"
         await callback_query.message.edit_text(
-            f"👑 **You are already PREMIUM!**\n\n"
-            f"Expiry: `{expiry}`\n\n"
-            f"Enjoy unlimited access to all features.",
+            f"👑 **You are already PREMIUM!**\n\nExpiry: `{expiry}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
         )
     else:
@@ -188,13 +189,13 @@ async def cb_status(client, callback_query):
     uid = callback_query.from_user.id
     user = get_user(uid)
     badge = "👑 PREMIUM" if is_premium(uid) else "🆓 FREE"
-    thumb = "✅ Set" if user.get("thumbnail") else "❌ Not set"
-    expiry = user.get("premium_expiry", "—") if is_premium(uid) else "—"
+    thumb = "✅ Set" if user.get("thumbnail") and os.path.exists(user["thumbnail"]) else "❌ Not set"
+    expiry = user.get("premium_expiry") or "—"
     await callback_query.message.edit_text(
         f"📊 **Your Status**\n\n"
         f"🏷️ Plan: **{badge}**\n"
         f"📅 Premium expiry: `{expiry}`\n"
-        f"🖼️ Thumbnail: {thumb}\n",
+        f"🖼️ Thumbnail: {thumb}",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
     )
 
@@ -214,14 +215,15 @@ async def cb_back(client, callback_query):
 async def photo_handler(client, message):
     uid = message.from_user.id
     state = user_state.get(uid, {})
-
     if state.get("step") == "wait_thumbnail":
+        thumb_path = f"thumb_{uid}.jpg"
+        await message.download(file_name=thumb_path)
         user = get_user(uid)
-        user["thumbnail"] = message.photo.file_id
+        user["thumbnail"] = thumb_path
         save_user(uid, user)
         user_state.pop(uid, None)
         await message.reply(
-            "✅ **Thumbnail saved!**\n\nIt will be applied automatically to your renamed PDFs.",
+            "✅ **Thumbnail saved!**\n\nIt will be applied automatically to your renamed files.",
             reply_markup=main_menu_kb()
         )
 
@@ -252,16 +254,17 @@ async def file_handler(client, message):
         user_state.pop(uid, None)
         return
 
+    original_name = getattr(file, "file_name", None) or "file"
     user_state[uid] = {
         "step": "wait_newname",
         "file_id": file.file_id,
         "file_size": file_size_mb,
-        "original_name": file.file_name or "file",
-        "mime_type": file.mime_type or ""
+        "original_name": original_name,
+        "mime_type": getattr(file, "mime_type", "") or ""
     }
     await message.reply(
         f"📁 **File received!**\n\n"
-        f"Name: `{file.file_name}`\n"
+        f"Name: `{original_name}`\n"
         f"Size: `{file_size_mb:.2f}MB`\n\n"
         f"Now send me the **new name** (without extension):",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_main")]])
@@ -279,7 +282,7 @@ async def text_handler(client, message):
     if step == "wait_text_font":
         user_state[uid] = {"step": "wait_font_choice", "text": message.text}
         await message.reply(
-            f"✏️ Text received:\n`{message.text}`\n\nChoose a font style 👇",
+            message.text,
             reply_markup=font_kb()
         )
 
@@ -288,17 +291,18 @@ async def text_handler(client, message):
         state["step"] = "wait_format"
         user_state[uid] = state
         await message.reply(
-            f"✅ New name set: **{message.text.strip()}**\n\nChoose output format:",
+            f"✅ New name: **{message.text.strip()}**\n\nChoose output format:",
             reply_markup=rename_format_kb()
         )
 
 # ─────────────────────────────────────────
-# FONT CALLBACK
+# FONT CALLBACK — edits the text message in place
 # ─────────────────────────────────────────
 @app.on_callback_query(filters.regex("^font_"))
 async def font_callback(client, callback_query):
     uid = callback_query.from_user.id
     state = user_state.get(uid, {})
+
     if state.get("step") != "wait_font_choice":
         await callback_query.answer("Send text first.", show_alert=True)
         return
@@ -307,18 +311,17 @@ async def font_callback(client, callback_query):
     original = state.get("text", "")
     converted = convert_font(original, font_key)
 
-    user_state.pop(uid, None)
-    await callback_query.message.edit_text(
-        f"✅ **Converted Text:**\n\n{converted}\n\n"
-        f"_(Tap to copy)_",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("🔄 Convert Again", callback_data="menu_font")],
-            [InlineKeyboardButton("🔙 Main Menu", callback_data="back_main")]
-        ])
-    )
+    try:
+        await callback_query.message.edit_text(
+            converted,
+            reply_markup=font_kb()
+        )
+        await callback_query.answer("✅ Font applied!")
+    except Exception as e:
+        await callback_query.answer(f"Error: {e}", show_alert=True)
 
 # ─────────────────────────────────────────
-# FORMAT CALLBACK (Document / Video)
+# FORMAT CALLBACK — download, rename, re-upload
 # ─────────────────────────────────────────
 @app.on_callback_query(filters.regex("^fmt_"))
 async def format_callback(client, callback_query):
@@ -331,75 +334,86 @@ async def format_callback(client, callback_query):
     fmt = callback_query.data.split("_")[1]
     new_name = state["new_name"]
     file_id = state["file_id"]
-    mime = state.get("mime_type", "")
+    original_name = state.get("original_name", "file")
 
-    # Determine extension
-    if fmt == "document":
-        if "pdf" in mime:
-            ext = ".pdf"
-        elif "word" in mime or "document" in mime:
-            ext = ".docx"
-        elif "zip" in mime:
-            ext = ".zip"
-        else:
-            orig = state.get("original_name", "file")
-            ext = os.path.splitext(orig)[1] or ".file"
-    else:
+    # Keep original extension
+    _, orig_ext = os.path.splitext(original_name)
+    if fmt == "video":
         ext = ".mp4"
+    else:
+        ext = orig_ext if orig_ext else ".pdf"
 
     final_name = new_name + ext
-    user = get_user(uid)
-    thumb = user.get("thumbnail")
 
-    await callback_query.message.edit_text(f"⏳ Sending **{final_name}**...")
+    # Thumbnail
+    user = get_user(uid)
+    thumb_path = user.get("thumbnail")
+    if thumb_path and not os.path.exists(thumb_path):
+        thumb_path = None
+
+    temp_download = f"dl_{uid}{orig_ext or '.file'}"
+    temp_final = f"renamed_{uid}{ext}"
+
+    status_msg = await callback_query.message.edit_text("⏳ Downloading file...")
 
     try:
+        await client.download_media(file_id, file_name=temp_download)
+
+        if not os.path.exists(temp_download):
+            await status_msg.edit_text("❌ Download failed. Try again.")
+            return
+
+        os.rename(temp_download, temp_final)
+        await status_msg.edit_text(f"⏳ Uploading as **{final_name}**...")
+
         if fmt == "video":
-            await callback_query.message._client.send_video(
+            await client.send_video(
                 chat_id=uid,
-                video=file_id,
+                video=temp_final,
                 caption=f"🎬 `{final_name}`\n\n@HeavenFallNetwork",
                 file_name=final_name,
-                thumb=thumb
+                thumb=thumb_path
             )
         else:
-            await callback_query.message._client.send_document(
+            await client.send_document(
                 chat_id=uid,
-                document=file_id,
+                document=temp_final,
                 caption=f"📄 `{final_name}`\n\n@HeavenFallNetwork",
                 file_name=final_name,
-                thumb=thumb
+                thumb=thumb_path
             )
-        user_state.pop(uid, None)
-        await callback_query.message.edit_text(
+
+        await status_msg.edit_text(
             f"✅ **Done!** `{final_name}` sent.",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("📁 Rename Another", callback_data="menu_rename")],
                 [InlineKeyboardButton("🔙 Main Menu", callback_data="back_main")]
             ])
         )
+
     except Exception as e:
-        await callback_query.message.edit_text(
+        await status_msg.edit_text(
             f"❌ Error: `{e}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
         )
+    finally:
+        for f in [temp_download, temp_final]:
+            if os.path.exists(f):
+                os.remove(f)
+        user_state.pop(uid, None)
 
 # ─────────────────────────────────────────
 # ADMIN: ADD / REMOVE PREMIUM
 # ─────────────────────────────────────────
 @app.on_message(filters.command("addpremium") & filters.user(ADMINS))
 async def add_premium(client, message):
-    # Usage: /addpremium <user_id> <days>  (0 days = lifetime)
     try:
         parts = message.command
         target_id = int(parts[1])
         days = int(parts[2]) if len(parts) > 2 else 0
         user = get_user(target_id)
         user["premium"] = True
-        if days > 0:
-            user["premium_expiry"] = (datetime.now() + timedelta(days=days)).isoformat()
-        else:
-            user["premium_expiry"] = None
+        user["premium_expiry"] = (datetime.now() + timedelta(days=days)).isoformat() if days > 0 else None
         save_user(target_id, user)
         label = f"{days} days" if days > 0 else "Lifetime"
         await message.reply(f"✅ Premium granted to `{target_id}` — **{label}**")
