@@ -323,6 +323,18 @@ async def font_callback(client, callback_query):
 # ─────────────────────────────────────────
 # FORMAT CALLBACK — download, rename, re-upload
 # ─────────────────────────────────────────
+async def progress(current, total, message, action):
+    percent = (current / total) * 100
+    bar_filled = int(percent / 10)
+    bar = "█" * bar_filled + "░" * (10 - bar_filled)
+    try:
+        await message.edit_text(
+            f"{'⬇️ Downloading' if action == 'dl' else '⬆️ Uploading'}...\n\n"
+            f"[{bar}] {percent:.1f}%"
+        )
+    except:
+        pass
+
 @app.on_callback_query(filters.regex("^fmt_"))
 async def format_callback(client, callback_query):
     uid = callback_query.from_user.id
@@ -336,35 +348,34 @@ async def format_callback(client, callback_query):
     file_id = state["file_id"]
     original_name = state.get("original_name", "file")
 
-    # Keep original extension
     _, orig_ext = os.path.splitext(original_name)
-    if fmt == "video":
-        ext = ".mp4"
-    else:
-        ext = orig_ext if orig_ext else ".pdf"
-
+    ext = ".mp4" if fmt == "video" else (orig_ext if orig_ext else ".pdf")
     final_name = new_name + ext
 
-    # Thumbnail
     user = get_user(uid)
     thumb_path = user.get("thumbnail")
     if thumb_path and not os.path.exists(thumb_path):
         thumb_path = None
 
-    temp_download = f"dl_{uid}{orig_ext or '.file'}"
-    temp_final = f"renamed_{uid}{ext}"
+    temp_download = f"/tmp/dl_{uid}{orig_ext or '.file'}"
+    temp_final = f"/tmp/renamed_{uid}{ext}"
 
-    status_msg = await callback_query.message.edit_text("⏳ Downloading file...")
+    status_msg = await callback_query.message.edit_text("⬇️ Downloading...\n\n[░░░░░░░░░░] 0%")
 
     try:
-        await client.download_media(file_id, file_name=temp_download)
+        path = await client.download_media(
+            file_id,
+            file_name=temp_download,
+            progress=progress,
+            progress_args=(status_msg, "dl")
+        )
 
-        if not os.path.exists(temp_download):
+        if not path or not os.path.exists(path):
             await status_msg.edit_text("❌ Download failed. Try again.")
             return
 
-        os.rename(temp_download, temp_final)
-        await status_msg.edit_text(f"⏳ Uploading as **{final_name}**...")
+        os.rename(path, temp_final)
+        await status_msg.edit_text("⬆️ Uploading...\n\n[░░░░░░░░░░] 0%")
 
         if fmt == "video":
             await client.send_video(
@@ -372,7 +383,9 @@ async def format_callback(client, callback_query):
                 video=temp_final,
                 caption=f"🎬 `{final_name}`\n\n@HeavenFallNetwork",
                 file_name=final_name,
-                thumb=thumb_path
+                thumb=thumb_path,
+                progress=progress,
+                progress_args=(status_msg, "ul")
             )
         else:
             await client.send_document(
@@ -380,7 +393,9 @@ async def format_callback(client, callback_query):
                 document=temp_final,
                 caption=f"📄 `{final_name}`\n\n@HeavenFallNetwork",
                 file_name=final_name,
-                thumb=thumb_path
+                thumb=thumb_path,
+                progress=progress,
+                progress_args=(status_msg, "ul")
             )
 
         await status_msg.edit_text(
