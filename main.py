@@ -96,7 +96,7 @@ def rename_format_kb():
 
 def premium_kb():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💎 Buy Premium — Contact @fangheaven", url="https://t.me/fangheaven")],
+        [InlineKeyboardButton("💎 Buy Premium — Contact the Owner @fangheaven", url="https://t.me/fangheaven")],
         [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
     ])
 
