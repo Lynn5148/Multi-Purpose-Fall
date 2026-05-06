@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import aiohttp
 from pyrogram import Client, filters
 from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -14,16 +15,70 @@ app = Client("utilbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 user_state = {}
 DB_FILE = "users_db.json"
+IMG_CACHE_FILE = "img_cache.json"
 
 # ─────────────────────────────────────────
-# IMAGES
+# IMAGE URLS — downloaded once on startup
 # ─────────────────────────────────────────
-IMG_START    = "https://plain-apac-prod-public.komododecks.com/202605/06/XUaMU1y29VBWnGl3SjeP/image.jpg"
-IMG_RENAME   = "https://plain-apac-prod-public.komododecks.com/202605/06/QmxtOBa2q9EIum9HNdZQ/image.jpg"
-IMG_FONT     = "https://plain-apac-prod-public.komododecks.com/202605/06/alQ822mcjFA0h3mE2NW8/image.jpg"
-IMG_PREMIUM  = "https://plain-apac-prod-public.komododecks.com/202605/06/OeNb54pavQiCP3azq9Z4/image.jpg"
-IMG_THUMB    = IMG_RENAME   # reuse for thumbnail section
-IMG_STATUS   = IMG_FONT     # reuse for status section
+IMAGE_URLS = {
+    "start":   "https://plain-apac-prod-public.komododecks.com/202605/06/XUaMU1y29VBWnGl3SjeP/image.jpg",
+    "rename":  "https://plain-apac-prod-public.komododecks.com/202605/06/QmxtOBa2q9EIum9HNdZQ/image.jpg",
+    "font":    "https://plain-apac-prod-public.komododecks.com/202605/06/alQ822mcjFA0h3mE2NW8/image.jpg",
+    "premium": "https://plain-apac-prod-public.komododecks.com/202605/06/OeNb54pavQiCP3azq9Z4/image.jpg",
+}
+
+# Cached Telegram file_ids after first upload
+IMG = {}
+
+async def load_images(client):
+    """Download images from URLs, upload to Telegram, cache file_ids."""
+    global IMG
+
+    # Load from cache if exists
+    if os.path.exists(IMG_CACHE_FILE):
+        try:
+            with open(IMG_CACHE_FILE, "r") as f:
+                IMG = json.load(f)
+            print("✅ Images loaded from cache.")
+            return
+        except:
+            pass
+
+    print("⬇️ Downloading images for first time...")
+    cache = {}
+
+    async with aiohttp.ClientSession() as session:
+        for key, url in IMAGE_URLS.items():
+            try:
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        data = await resp.read()
+                        path = f"/tmp/img_{key}.jpg"
+                        with open(path, "wb") as f:
+                            f.write(data)
+
+                        # Send to admins[0] as a cache message
+                        msg = await client.send_photo(
+                            chat_id=ADMINS[0],
+                            photo=path,
+                            caption=f"[IMG CACHE: {key}]"
+                        )
+                        cache[key] = msg.photo.file_id
+                        os.remove(path)
+                        print(f"✅ Cached: {key}")
+                    else:
+                        print(f"❌ Failed to fetch {key}: HTTP {resp.status}")
+            except Exception as e:
+                print(f"❌ Error caching {key}: {e}")
+
+    IMG = cache
+    with open(IMG_CACHE_FILE, "w") as f:
+        json.dump(cache, f)
+    print("✅ All images cached.")
+
+def get_img(key):
+    """Get cached file_id or None"""
+    return IMG.get(key)
 
 # ─────────────────────────────────────────
 # DATABASE
@@ -72,6 +127,21 @@ def get_stats():
     total = len(db)
     premium = sum(1 for u in db.values() if u.get("premium"))
     return total, premium
+
+# ─────────────────────────────────────────
+# SEND WITH PHOTO HELPER
+# ─────────────────────────────────────────
+async def send_img(message, img_key, caption, reply_markup=None):
+    """Send photo if cached, otherwise send text only."""
+    file_id = get_img(img_key)
+    if file_id:
+        await message.reply_photo(
+            photo=file_id,
+            caption=caption,
+            reply_markup=reply_markup
+        )
+    else:
+        await message.reply(caption, reply_markup=reply_markup)
 
 # ─────────────────────────────────────────
 # FAKE PROGRESS
@@ -133,7 +203,7 @@ def font_kb():
 
 def premium_kb():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💎 Buy Premium — @fangheaven", url="https://t.me/fangheaven")],
+        [InlineKeyboardButton("💎 Purchase Premium — @fangheaven", url="https://t.me/fangheaven")],
     ])
 
 def admin_kb():
@@ -148,28 +218,29 @@ def admin_kb():
     ])
 
 # ─────────────────────────────────────────
-# /start
+# STARTUP — cache images
 # ─────────────────────────────────────────
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     uid = message.from_user.id
     name = message.from_user.first_name or "there"
-    badge = "👑 PREMIUM" if is_premium(uid) else "🆓 FREE"
-    await message.reply_photo(
-        photo=IMG_START,
+    badge = "👑 Premium Member" if is_premium(uid) else "🆓 Free Plan"
+    await send_img(
+        message, "start",
         caption=(
-            f"✦ **Welcome to HeavenFall Utility Bot** ✦\n"
+            f"✦ **HeavenFall Utility Bot** ✦\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"Hey **{name}!** 👋\n"
-            f"Your premium-grade toolkit for Telegram.\n\n"
-            f"🏷️ **Your Plan:** {badge}\n\n"
+            f"Welcome, **{name}**. 👋\n\n"
+            f"Your precision toolkit for Telegram —\n"
+            f"built for speed, style, and simplicity.\n\n"
+            f"🏷️ **Account Plan:** {badge}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔽 **What can I do for you?**\n\n"
-            f"📁 **Rename** any file with a custom name & thumbnail\n"
-            f"🔤 **Transform** text into stunning font styles\n"
-            f"🖼️ **Set** a permanent thumbnail for all your files\n"
+            f"**What I can do:**\n\n"
+            f"📁 **Rename** files with a custom name & thumbnail\n"
+            f"🔤 **Convert** text into premium font styles\n"
+            f"🖼️ **Store** a permanent thumbnail for all files\n"
             f"👑 **Upgrade** for unlimited access\n\n"
-            f"_Use the buttons below to get started_ 👇"
+            f"_Select a feature from the menu below_ 👇"
         ),
         reply_markup=main_reply_kb()
     )
@@ -181,13 +252,13 @@ async def start(client, message):
 async def admin_panel(client, message):
     total, premium = get_stats()
     await message.reply(
-        f"🛠️ **HeavenFall Admin Panel**\n"
+        f"🛠️ **HeavenFall — Admin Panel**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
-        f"👥 Total Users: `{total}`\n"
-        f"👑 Premium Users: `{premium}`\n"
-        f"🆓 Free Users: `{total - premium}`\n\n"
+        f"👥 **Total Users:** `{total}`\n"
+        f"👑 **Premium Users:** `{premium}`\n"
+        f"🆓 **Free Users:** `{total - premium}`\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"Select an action 👇",
+        f"Select an action below 👇",
         reply_markup=admin_kb()
     )
 
@@ -201,9 +272,9 @@ async def admin_callbacks(client, callback_query):
         await callback_query.message.edit_text(
             f"📊 **Bot Statistics**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"👥 Total Users: `{total}`\n"
-            f"👑 Premium Users: `{premium}`\n"
-            f"🆓 Free Users: `{total - premium}`",
+            f"👥 **Total Users:** `{total}`\n"
+            f"👑 **Premium Users:** `{premium}`\n"
+            f"🆓 **Free Users:** `{total - premium}`",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="adm_back")]])
         )
 
@@ -212,27 +283,29 @@ async def admin_callbacks(client, callback_query):
         await callback_query.message.edit_text(
             "📢 **Broadcast Message**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Send the message to broadcast to **all users**:",
+            "Compose your message below.\n"
+            "It will be delivered to **all users** instantly.",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="adm_back")]])
         )
 
     elif data == "adm_addprem":
         user_state[uid] = {"step": "adm_addprem"}
         await callback_query.message.edit_text(
-            "👑 **Grant Premium**\n"
+            "👑 **Grant Premium Access**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             "Send: `<user_id> <days>`\n\n"
-            "Example: `123456789 30`\n"
-            "For lifetime: `123456789 0`",
+            "📌 Examples:\n"
+            "`123456789 30` → 30 days\n"
+            "`123456789 0` → Lifetime",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="adm_back")]])
         )
 
     elif data == "adm_remprem":
         user_state[uid] = {"step": "adm_remprem"}
         await callback_query.message.edit_text(
-            "🗑️ **Remove Premium**\n"
+            "🗑️ **Revoke Premium Access**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Send the `user_id` to revoke premium from:",
+            "Send the `user_id` to revoke their premium:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="adm_back")]])
         )
 
@@ -241,17 +314,17 @@ async def admin_callbacks(client, callback_query):
         await callback_query.message.edit_text(
             "🔍 **User Lookup**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "Send the `user_id` to inspect:",
+            "Send the `user_id` to inspect their account:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="adm_back")]])
         )
 
     elif data == "adm_reset":
         user_state[uid] = {"step": "adm_reset"}
         await callback_query.message.edit_text(
-            "💥 **Reset User**\n"
+            "💥 **Reset User Account**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "⚠️ This **permanently deletes** all data for the user.\n\n"
-            "Send the `user_id` to reset:",
+            "⚠️ This **permanently wipes** all data for the specified user.\n\n"
+            "Send the `user_id` to proceed:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="adm_back")]])
         )
 
@@ -259,13 +332,13 @@ async def admin_callbacks(client, callback_query):
         user_state.pop(uid, None)
         total, premium = get_stats()
         await callback_query.message.edit_text(
-            f"🛠️ **HeavenFall Admin Panel**\n"
+            f"🛠️ **HeavenFall — Admin Panel**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"👥 Total Users: `{total}`\n"
-            f"👑 Premium Users: `{premium}`\n"
-            f"🆓 Free Users: `{total - premium}`\n\n"
+            f"👥 **Total Users:** `{total}`\n"
+            f"👑 **Premium Users:** `{premium}`\n"
+            f"🆓 **Free Users:** `{total - premium}`\n\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"Select an action 👇",
+            f"Select an action below 👇",
             reply_markup=admin_kb()
         )
 
@@ -285,40 +358,42 @@ async def main_kb_handler(client, message):
 
     if text == "📁 Rename File":
         user_state[uid] = {"step": "wait_file"}
-        await message.reply_photo(
-            photo=IMG_RENAME,
+        await send_img(
+            message, "rename",
             caption=(
                 "📁 **File Renamer**\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Drop your file below and I'll rename it instantly.\n\n"
-                "📦 **Free users:** Up to **100MB**\n"
-                "👑 **Premium users:** Unlimited size\n\n"
-                "_Send your file now_ 👇"
+                "Send your file and I'll rename it with precision.\n\n"
+                "📦 **Free Plan:** Up to **100 MB**\n"
+                "👑 **Premium:** Unlimited file size\n\n"
+                "_Drop your file below to begin_ 👇"
             )
         )
 
     elif text == "🔤 Font Changer":
         user_state[uid] = {"step": "wait_text_font"}
-        await message.reply_photo(
-            photo=IMG_FONT,
+        await send_img(
+            message, "font",
             caption=(
                 "🔤 **Font Changer**\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Transform your plain text into **stunning styles** instantly.\n\n"
-                "✍️ Send me any text and choose your style from the menu.\n\n"
-                "_Type your text now_ 👇"
+                "Elevate your text with **premium Unicode font styles**.\n\n"
+                "✍️ Type anything — titles, names, captions —\n"
+                "and transform them instantly.\n\n"
+                "_Send your text to continue_ 👇"
             )
         )
 
     elif text == "🖼️ Set Thumbnail":
         user_state[uid] = {"step": "wait_thumbnail"}
-        await message.reply_photo(
-            photo=IMG_THUMB,
+        await send_img(
+            message, "rename",
             caption=(
                 "🖼️ **Set Thumbnail**\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
-                "Send a photo and it will be **permanently saved** as your default thumbnail.\n\n"
-                "📌 Applied automatically to every file you rename.\n\n"
+                "Upload a photo to set as your **permanent default thumbnail**.\n\n"
+                "📌 It will be automatically applied to every file you rename —\n"
+                "no need to set it again.\n\n"
                 "_Send your photo now_ 👇"
             )
         )
@@ -328,14 +403,17 @@ async def main_kb_handler(client, message):
         thumb_id = user.get("thumbnail_file_id")
         if not thumb_id:
             await message.reply(
-                "❌ **No Thumbnail Set**\n\n"
-                "You haven't set a thumbnail yet.\n"
-                "Tap **🖼️ Set Thumbnail** to add one!"
+                "🖼️ **No Thumbnail Set**\n\n"
+                "You haven't configured a thumbnail yet.\n\n"
+                "Tap **🖼️ Set Thumbnail** to upload one."
             )
         else:
             await message.reply_photo(
                 photo=thumb_id,
-                caption="🖼️ **Your Current Thumbnail**\n\nThis will be applied to all your renamed files."
+                caption=(
+                    "🖼️ **Your Current Thumbnail**\n\n"
+                    "This image is applied to all files you rename."
+                )
             )
 
     elif text == "❌ Clear Thumbnail":
@@ -343,26 +421,26 @@ async def main_kb_handler(client, message):
         user["thumbnail_file_id"] = None
         save_user(uid, user)
         await message.reply(
-            "🗑️ **Thumbnail Cleared**\n\n"
-            "Your thumbnail has been removed.\n"
-            "Files will be sent without a custom thumbnail."
+            "🗑️ **Thumbnail Removed**\n\n"
+            "Your default thumbnail has been cleared.\n"
+            "Files will be sent without a custom thumbnail going forward."
         )
 
     elif text == "ℹ️ My Status":
         user = get_user(uid)
-        badge = "👑 PREMIUM" if is_premium(uid) else "🆓 FREE"
-        thumb = "✅ Active" if user.get("thumbnail_file_id") else "❌ Not set"
+        badge = "👑 Premium Member" if is_premium(uid) else "🆓 Free Plan"
+        thumb = "✅ Configured" if user.get("thumbnail_file_id") else "❌ Not set"
         expiry = user.get("premium_expiry") or "—"
-        await message.reply_photo(
-            photo=IMG_STATUS,
+        await send_img(
+            message, "font",
             caption=(
-                f"📊 **Your Account Status**\n"
+                f"📊 **Account Status**\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
                 f"🏷️ **Plan:** {badge}\n"
                 f"📅 **Expiry:** `{expiry}`\n"
                 f"🖼️ **Thumbnail:** {thumb}\n\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"_Tap 👑 Premium to unlock unlimited access_"
+                f"_Tap 👑 Premium to unlock full access_"
             )
         )
 
@@ -370,30 +448,30 @@ async def main_kb_handler(client, message):
         if is_premium(uid):
             user = get_user(uid)
             expiry = user.get("premium_expiry") or "Lifetime"
-            await message.reply_photo(
-                photo=IMG_PREMIUM,
+            await send_img(
+                message, "premium",
                 caption=(
-                    f"👑 **You're a Premium Member!**\n"
+                    f"👑 **Premium Member**\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                    f"✨ Enjoy unlimited access to all features.\n\n"
+                    f"You have **full access** to all HeavenFall features.\n\n"
                     f"📅 **Expiry:** `{expiry}`\n\n"
-                    f"_Thank you for supporting HeavenFall_ 💫"
+                    f"_Thank you for being a part of HeavenFall._ 💫"
                 )
             )
         else:
-            await message.reply_photo(
-                photo=IMG_PREMIUM,
+            await send_img(
+                message, "premium",
                 caption=(
                     "👑 **HeavenFall Premium**\n"
                     "━━━━━━━━━━━━━━━━━━━━\n\n"
-                    "🚀 Unlock the full power of HeavenFall:\n\n"
-                    "✅ Rename files **above 100MB**\n"
+                    "Unlock the full HeavenFall experience:\n\n"
+                    "✅ Rename files **above 100 MB**\n"
                     "✅ Unlimited font conversions\n"
-                    "✅ Custom thumbnails on every file\n"
+                    "✅ Auto-thumbnail on every file\n"
                     "✅ Priority support\n"
-                    "✅ Exclusive future features\n\n"
+                    "✅ Access to all future features\n\n"
                     "━━━━━━━━━━━━━━━━━━━━\n"
-                    "💬 Contact **@fangheaven** to purchase 👇"
+                    "💬 Contact **@fangheaven** to get started 👇"
                 ),
                 reply_markup=premium_kb()
             )
@@ -412,8 +490,9 @@ async def photo_handler(client, message):
         save_user(uid, user)
         user_state.pop(uid, None)
         await message.reply(
-            "✅ **Thumbnail Saved!**\n\n"
-            "Your thumbnail is locked in and will be applied to every file you rename. 🔥"
+            "✅ **Thumbnail Saved**\n\n"
+            "Your thumbnail is locked in and will be automatically\n"
+            "applied to every file you rename. 🔒"
         )
 
 # ─────────────────────────────────────────
@@ -431,11 +510,11 @@ async def file_handler(client, message):
 
     if file_size_mb > 100 and not is_premium(uid):
         await message.reply(
-            f"⚠️ **File Too Large!**\n"
+            f"⚠️ **File Size Exceeded**\n"
             f"━━━━━━━━━━━━━━━━━━━━\n\n"
-            f"📦 Your file: **{file_size_mb:.1f}MB**\n"
-            f"🚫 Free limit: **100MB**\n\n"
-            f"Upgrade to 👑 **Premium** for unlimited file size!"
+            f"📦 Your file: **{file_size_mb:.1f} MB**\n"
+            f"🚫 Free plan limit: **100 MB**\n\n"
+            f"Upgrade to 👑 **Premium** for unlimited file size."
         )
         user_state.pop(uid, None)
         return
@@ -450,11 +529,11 @@ async def file_handler(client, message):
         "msg_id": message.id
     }
     await message.reply(
-        f"✅ **File Received!**\n"
+        f"✅ **File Received**\n"
         f"━━━━━━━━━━━━━━━━━━━━\n\n"
         f"📋 **Name:** `{original_name}`\n"
         f"📦 **Size:** `{file_size_mb:.2f} MB`\n\n"
-        f"✏️ Now send me the **new name** _(without extension)_:"
+        f"✏️ Send me the **new filename** _(without extension)_:"
     )
 
 # ─────────────────────────────────────────
@@ -479,13 +558,12 @@ async def text_handler(client, message):
     state = user_state.get(uid, {})
     step = state.get("step")
 
-    # ── Admin flows ──
     if step == "adm_broadcast":
         db = load_db()
         user_state.pop(uid, None)
         sent = 0
         failed = 0
-        await message.reply("📢 **Broadcasting...** Please wait.")
+        prog = await message.reply("📢 **Broadcasting...** Please wait.")
         for user_id in db.keys():
             try:
                 await app.send_message(int(user_id), text)
@@ -493,9 +571,9 @@ async def text_handler(client, message):
                 await asyncio.sleep(0.05)
             except:
                 failed += 1
-        await message.reply(
-            f"✅ **Broadcast Complete!**\n\n"
-            f"✔️ Sent: `{sent}`\n"
+        await prog.edit_text(
+            f"✅ **Broadcast Complete**\n\n"
+            f"✔️ Delivered: `{sent}`\n"
             f"❌ Failed: `{failed}`"
         )
 
@@ -510,9 +588,13 @@ async def text_handler(client, message):
             user["premium_expiry"] = (datetime.now() + timedelta(days=days)).isoformat() if days > 0 else None
             save_user(target_id, user)
             label = f"{days} days" if days > 0 else "Lifetime"
-            await message.reply(f"✅ **Premium Granted!**\n\nUser: `{target_id}`\nDuration: **{label}**")
+            await message.reply(
+                f"✅ **Premium Granted**\n\n"
+                f"🆔 User: `{target_id}`\n"
+                f"⏳ Duration: **{label}**"
+            )
         except Exception as e:
-            await message.reply(f"❌ Error: `{e}`\n\nFormat: `<user_id> <days>`")
+            await message.reply(f"❌ **Error:** `{e}`\n\nFormat: `<user_id> <days>`")
 
     elif step == "adm_remprem":
         user_state.pop(uid, None)
@@ -522,28 +604,28 @@ async def text_handler(client, message):
             user["premium"] = False
             user["premium_expiry"] = None
             save_user(target_id, user)
-            await message.reply(f"✅ **Premium Removed** from `{target_id}`")
+            await message.reply(f"✅ **Premium Revoked** from `{target_id}`")
         except Exception as e:
-            await message.reply(f"❌ Error: `{e}`")
+            await message.reply(f"❌ **Error:** `{e}`")
 
     elif step == "adm_lookup":
         user_state.pop(uid, None)
         try:
             target_id = int(text.strip())
             user = get_user(target_id)
-            badge = "👑 PREMIUM" if user.get("premium") else "🆓 FREE"
+            badge = "👑 Premium" if user.get("premium") else "🆓 Free"
             expiry = user.get("premium_expiry") or "—"
             thumb = "✅ Set" if user.get("thumbnail_file_id") else "❌ Not set"
             await message.reply(
-                f"🔍 **User Info**\n"
+                f"🔍 **User Report**\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n\n"
-                f"🆔 ID: `{target_id}`\n"
-                f"🏷️ Plan: **{badge}**\n"
-                f"📅 Expiry: `{expiry}`\n"
-                f"🖼️ Thumbnail: {thumb}"
+                f"🆔 **ID:** `{target_id}`\n"
+                f"🏷️ **Plan:** {badge}\n"
+                f"📅 **Expiry:** `{expiry}`\n"
+                f"🖼️ **Thumbnail:** {thumb}"
             )
         except Exception as e:
-            await message.reply(f"❌ Error: `{e}`")
+            await message.reply(f"❌ **Error:** `{e}`")
 
     elif step == "adm_reset":
         user_state.pop(uid, None)
@@ -553,16 +635,17 @@ async def text_handler(client, message):
             if str(target_id) in db:
                 del db[str(target_id)]
                 save_db(db)
-            await message.reply(f"💥 **User `{target_id}` fully reset.**\n\nAll their data has been wiped.")
+            await message.reply(
+                f"💥 **User Reset Complete**\n\n"
+                f"All data for `{target_id}` has been permanently wiped."
+            )
         except Exception as e:
-            await message.reply(f"❌ Error: `{e}`")
+            await message.reply(f"❌ **Error:** `{e}`")
 
-    # ── Font flow ──
     elif step == "wait_text_font":
         user_state[uid] = {"step": "wait_font_choice", "text": text}
         await message.reply(text, reply_markup=font_kb())
 
-    # ── Rename flow ──
     elif step == "wait_newname":
         state["new_name"] = text.strip()
         state["step"] = "wait_rename_go"
@@ -612,7 +695,9 @@ async def do_rename(message, uid):
         await prog_task
 
         if not path or not os.path.exists(path):
-            await status_msg.edit_text("❌ **Download failed.** Please try again.")
+            await status_msg.edit_text(
+                "❌ **Download Failed**\n\nUnable to retrieve your file. Please try again."
+            )
             return
 
         os.rename(path, temp_final)
@@ -647,9 +732,9 @@ async def do_rename(message, uid):
         await prog_task2
 
         await status_msg.edit_text(
-            f"✅ **Done!**\n\n"
-            f"📄 `{final_name}` has been sent successfully.\n\n"
-            f"_Need to rename another? Just send the next file!_ 📁"
+            f"✅ **Rename Complete**\n\n"
+            f"📄 `{final_name}` has been delivered.\n\n"
+            f"_Send another file to rename it_ 📁"
         )
         user_state[uid] = {"step": "wait_file"}
 
@@ -675,7 +760,7 @@ async def font_callback(client, callback_query):
     state = user_state.get(uid, {})
 
     if state.get("step") != "wait_font_choice":
-        await callback_query.answer("Send text first.", show_alert=True)
+        await callback_query.answer("Please send your text first.", show_alert=True)
         return
 
     font_key = callback_query.data
@@ -684,7 +769,7 @@ async def font_callback(client, callback_query):
 
     try:
         await callback_query.message.edit_text(converted, reply_markup=font_kb())
-        await callback_query.answer("✅ Font applied!")
+        await callback_query.answer("✅ Style applied!")
     except Exception as e:
         await callback_query.answer(f"Error: {e}", show_alert=True)
 
@@ -723,5 +808,14 @@ async def rem_premium(client, message):
     except Exception as e:
         await message.reply(f"❌ Usage: `/rempremium <user_id>`\nError: {e}")
 
+# ─────────────────────────────────────────
+# STARTUP EVENT
+# ─────────────────────────────────────────
+async def main():
+    async with app:
+        await load_images(app)
+        print("HeavenFall Utility Bot is Alive...")
+        await asyncio.Event().wait()
+
 print("HeavenFall Utility Bot is Alive...")
-app.run()
+asyncio.run(main())
