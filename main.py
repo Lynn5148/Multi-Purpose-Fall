@@ -1,5 +1,6 @@
 import os
 import json
+import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -57,9 +58,9 @@ def is_premium(user_id):
     return True
 
 # ─────────────────────────────────────────
-# PROGRESS BAR
+# PROGRESS — manual update every 3 seconds
 # ─────────────────────────────────────────
-async def progress(current, total, message, action):
+async def progress(current, total, status_msg, action):
     percent = (current / total) * 100
     filled = int(percent / 5)
     bar = "▓" * filled + "░" * (20 - filled)
@@ -68,7 +69,7 @@ async def progress(current, total, message, action):
     size_done = current / (1024 * 1024)
     size_total = total / (1024 * 1024)
     try:
-        await message.edit_text(
+        await status_msg.edit_text(
             f"{emoji} **{label}...**\n\n"
             f"`{bar}`\n\n"
             f"**{percent:.1f}%** — {size_done:.2f} MB / {size_total:.2f} MB"
@@ -77,9 +78,22 @@ async def progress(current, total, message, action):
         pass
 
 # ─────────────────────────────────────────
-# REPLY KEYBOARDS
+# KEYBOARDS
 # ─────────────────────────────────────────
+def main_reply_kb():
+    """Permanent bottom keyboard — always visible"""
+    return ReplyKeyboardMarkup(
+        [
+            [KeyboardButton("📁 Rename File"), KeyboardButton("🔤 Font Changer")],
+            [KeyboardButton("🖼️ Set Thumbnail"), KeyboardButton("👁️ View Thumbnail")],
+            [KeyboardButton("❌ Clear Thumbnail"), KeyboardButton("ℹ️ My Status")],
+            [KeyboardButton("👑 Premium")]
+        ],
+        resize_keyboard=True
+    )
+
 def format_reply_kb():
+    """Bottom keyboard for format selection"""
     return ReplyKeyboardMarkup(
         [
             [KeyboardButton("📄 Document"), KeyboardButton("🎬 Video")],
@@ -88,23 +102,6 @@ def format_reply_kb():
         resize_keyboard=True,
         one_time_keyboard=True
     )
-
-def remove_kb():
-    return ReplyKeyboardRemove()
-
-# ─────────────────────────────────────────
-# INLINE KEYBOARDS
-# ─────────────────────────────────────────
-def main_menu_kb():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📁 Rename File", callback_data="menu_rename"),
-         InlineKeyboardButton("🔤 Font Changer", callback_data="menu_font")],
-        [InlineKeyboardButton("🖼️ Set Thumbnail", callback_data="menu_thumbnail"),
-         InlineKeyboardButton("👁️ View Thumbnail", callback_data="view_thumb")],
-        [InlineKeyboardButton("❌ Clear Thumbnail", callback_data="clear_thumb")],
-        [InlineKeyboardButton("👑 Premium", callback_data="menu_premium"),
-         InlineKeyboardButton("ℹ️ My Status", callback_data="menu_status")]
-    ])
 
 def font_kb():
     return InlineKeyboardMarkup([
@@ -142,114 +139,90 @@ async def start(client, message):
         f"✨ **Welcome to HeavenFall Utility Bot** ✨\n\n"
         f"Your all-in-one tool for file renaming,\nfont conversion & more.\n\n"
         f"Status: {badge}\n\n"
-        f"Select an option below 👇",
-        reply_markup=main_menu_kb()
+        f"Use the buttons below 👇",
+        reply_markup=main_reply_kb()
     )
 
 # ─────────────────────────────────────────
-# MENU CALLBACKS
+# MAIN REPLY KEYBOARD HANDLER
 # ─────────────────────────────────────────
-@app.on_callback_query(filters.regex("^menu_rename$"))
-async def cb_rename(client, callback_query):
-    user_state[callback_query.from_user.id] = {"step": "wait_file"}
-    await callback_query.message.edit_text(
-        "📁 **File Renamer**\n\n"
-        "Send me the file you want to rename.\n\n"
-        "⚠️ Free limit: **100MB max**\n"
-        "👑 Premium: **Unlimited size**",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_main")]])
-    )
+MAIN_KB_BUTTONS = [
+    "📁 Rename File", "🔤 Font Changer",
+    "🖼️ Set Thumbnail", "👁️ View Thumbnail",
+    "❌ Clear Thumbnail", "ℹ️ My Status", "👑 Premium"
+]
 
-@app.on_callback_query(filters.regex("^menu_font$"))
-async def cb_font(client, callback_query):
-    user_state[callback_query.from_user.id] = {"step": "wait_text_font"}
-    await callback_query.message.edit_text(
-        "🔤 **Font Changer**\n\nSend me the text you want to convert:",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_main")]])
-    )
+@app.on_message(filters.text & filters.private & filters.regex(
+    "^(📁 Rename File|🔤 Font Changer|🖼️ Set Thumbnail|👁️ View Thumbnail|❌ Clear Thumbnail|ℹ️ My Status|👑 Premium)$"
+))
+async def main_kb_handler(client, message):
+    uid = message.from_user.id
+    text = message.text
 
-@app.on_callback_query(filters.regex("^menu_thumbnail$"))
-async def cb_thumbnail(client, callback_query):
-    user_state[callback_query.from_user.id] = {"step": "wait_thumbnail"}
-    await callback_query.message.edit_text(
-        "🖼️ **Set Thumbnail**\n\n"
-        "Send me a photo to use as your default thumbnail.\n"
-        "It will be applied to all your renamed files automatically.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_main")]])
-    )
+    if text == "📁 Rename File":
+        user_state[uid] = {"step": "wait_file"}
+        await message.reply(
+            "📁 **File Renamer**\n\n"
+            "Send me the file you want to rename.\n\n"
+            "⚠️ Free limit: **100MB max**\n"
+            "👑 Premium: **Unlimited size**"
+        )
 
-@app.on_callback_query(filters.regex("^view_thumb$"))
-async def cb_view_thumb(client, callback_query):
-    uid = callback_query.from_user.id
-    user = get_user(uid)
-    thumb_id = user.get("thumbnail_file_id")
-    if not thumb_id:
-        await callback_query.answer("❌ No thumbnail set.", show_alert=True)
-        return
-    await callback_query.message.reply_photo(
-        photo=thumb_id,
-        caption="🖼️ **Your current thumbnail**"
-    )
-    await callback_query.answer()
+    elif text == "🔤 Font Changer":
+        user_state[uid] = {"step": "wait_text_font"}
+        await message.reply("🔤 **Font Changer**\n\nSend me the text you want to convert:")
 
-@app.on_callback_query(filters.regex("^clear_thumb$"))
-async def cb_clear_thumb(client, callback_query):
-    uid = callback_query.from_user.id
-    user = get_user(uid)
-    user["thumbnail_file_id"] = None
-    save_user(uid, user)
-    await callback_query.answer("✅ Thumbnail cleared!", show_alert=True)
-    await callback_query.message.edit_text(
-        "✅ Thumbnail removed.",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
-    )
+    elif text == "🖼️ Set Thumbnail":
+        user_state[uid] = {"step": "wait_thumbnail"}
+        await message.reply(
+            "🖼️ **Set Thumbnail**\n\n"
+            "Send me a photo to use as your default thumbnail.\n"
+            "It will be applied to all your renamed files."
+        )
 
-@app.on_callback_query(filters.regex("^menu_premium$"))
-async def cb_premium(client, callback_query):
-    uid = callback_query.from_user.id
-    if is_premium(uid):
+    elif text == "👁️ View Thumbnail":
         user = get_user(uid)
-        expiry = user.get("premium_expiry") or "Lifetime"
-        await callback_query.message.edit_text(
-            f"👑 **You are already PREMIUM!**\n\nExpiry: `{expiry}`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
-        )
-    else:
-        await callback_query.message.edit_text(
-            "👑 **HeavenFall Premium**\n\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            "✅ Rename files **above 100MB**\n"
-            "✅ Unlimited font conversions\n"
-            "✅ Priority support\n"
-            "✅ Exclusive future features\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            "To purchase, contact **@fangheaven** 👇",
-            reply_markup=premium_kb()
+        thumb_id = user.get("thumbnail_file_id")
+        if not thumb_id:
+            await message.reply("❌ No thumbnail set yet.")
+        else:
+            await message.reply_photo(photo=thumb_id, caption="🖼️ **Your current thumbnail**")
+
+    elif text == "❌ Clear Thumbnail":
+        user = get_user(uid)
+        user["thumbnail_file_id"] = None
+        save_user(uid, user)
+        await message.reply("✅ Thumbnail cleared.")
+
+    elif text == "ℹ️ My Status":
+        user = get_user(uid)
+        badge = "👑 PREMIUM" if is_premium(uid) else "🆓 FREE"
+        thumb = "✅ Set" if user.get("thumbnail_file_id") else "❌ Not set"
+        expiry = user.get("premium_expiry") or "—"
+        await message.reply(
+            f"📊 **Your Status**\n\n"
+            f"🏷️ Plan: **{badge}**\n"
+            f"📅 Premium expiry: `{expiry}`\n"
+            f"🖼️ Thumbnail: {thumb}"
         )
 
-@app.on_callback_query(filters.regex("^menu_status$"))
-async def cb_status(client, callback_query):
-    uid = callback_query.from_user.id
-    user = get_user(uid)
-    badge = "👑 PREMIUM" if is_premium(uid) else "🆓 FREE"
-    thumb = "✅ Set" if user.get("thumbnail_file_id") else "❌ Not set"
-    expiry = user.get("premium_expiry") or "—"
-    await callback_query.message.edit_text(
-        f"📊 **Your Status**\n\n"
-        f"🏷️ Plan: **{badge}**\n"
-        f"📅 Premium expiry: `{expiry}`\n"
-        f"🖼️ Thumbnail: {thumb}",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
-    )
-
-@app.on_callback_query(filters.regex("^back_main$"))
-async def cb_back(client, callback_query):
-    user_state.pop(callback_query.from_user.id, None)
-    badge = "👑 **PREMIUM**" if is_premium(callback_query.from_user.id) else "🆓 **FREE**"
-    await callback_query.message.edit_text(
-        f"✨ **HeavenFall Utility Bot** ✨\n\nStatus: {badge}\n\nSelect an option below 👇",
-        reply_markup=main_menu_kb()
-    )
+    elif text == "👑 Premium":
+        if is_premium(uid):
+            user = get_user(uid)
+            expiry = user.get("premium_expiry") or "Lifetime"
+            await message.reply(f"👑 **You are already PREMIUM!**\n\nExpiry: `{expiry}`")
+        else:
+            await message.reply(
+                "👑 **HeavenFall Premium**\n\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                "✅ Rename files **above 100MB**\n"
+                "✅ Unlimited font conversions\n"
+                "✅ Priority support\n"
+                "✅ Exclusive future features\n"
+                "━━━━━━━━━━━━━━━━━━\n\n"
+                "To purchase, contact **@fangheaven** 👇",
+                reply_markup=premium_kb()
+            )
 
 # ─────────────────────────────────────────
 # THUMBNAIL PHOTO HANDLER
@@ -259,16 +232,12 @@ async def photo_handler(client, message):
     uid = message.from_user.id
     state = user_state.get(uid, {})
     if state.get("step") == "wait_thumbnail":
-        # Save file_id — survives restarts, no path issues
         file_id = message.photo.file_id
         user = get_user(uid)
         user["thumbnail_file_id"] = file_id
         save_user(uid, user)
         user_state.pop(uid, None)
-        await message.reply(
-            "✅ **Thumbnail saved!**\n\nIt will be applied automatically to your renamed files.",
-            reply_markup=main_menu_kb()
-        )
+        await message.reply("✅ **Thumbnail saved!** It will be applied to your renamed files.")
 
 # ─────────────────────────────────────────
 # FILE HANDLER
@@ -286,23 +255,15 @@ async def file_handler(client, message):
     if file_size_mb > 100 and not is_premium(uid):
         await message.reply(
             f"⚠️ **File too large!**\n\n"
-            f"Your file is **{file_size_mb:.1f}MB**.\n"
-            f"Free users can only rename files up to **100MB**.\n\n"
-            f"Upgrade to 👑 **Premium** for unlimited size.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("👑 Get Premium", callback_data="menu_premium")],
-                [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
-            ])
+            f"Size: **{file_size_mb:.1f}MB** — Free limit is **100MB**.\n\n"
+            f"Tap 👑 Premium to unlock unlimited size.",
         )
         user_state.pop(uid, None)
         return
 
     original_name = getattr(file, "file_name", None) or "file"
-
-    # Store message_id so we download from correct message later
     user_state[uid] = {
         "step": "wait_newname",
-        "message_id": message.id,
         "file_id": file.file_id,
         "file_size": file_size_mb,
         "original_name": original_name,
@@ -312,17 +273,16 @@ async def file_handler(client, message):
         f"📁 **File received!**\n\n"
         f"📋 Name: `{original_name}`\n"
         f"📦 Size: `{file_size_mb:.2f} MB`\n\n"
-        f"Now send me the **new name** (without extension):",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Cancel", callback_data="back_main")]])
+        f"Send me the **new name** (without extension):"
     )
 
 # ─────────────────────────────────────────
-# TEXT HANDLER
+# TEXT HANDLER — general
 # ─────────────────────────────────────────
 @app.on_message(
     filters.text & filters.private &
     ~filters.command(["start", "addpremium", "rempremium"]) &
-    ~filters.regex("^(📄 Document|🎬 Video|❌ Cancel)$")
+    ~filters.regex("^(📁 Rename File|🔤 Font Changer|🖼️ Set Thumbnail|👁️ View Thumbnail|❌ Clear Thumbnail|ℹ️ My Status|👑 Premium|📄 Document|🎬 Video|❌ Cancel)$")
 )
 async def text_handler(client, message):
     uid = message.from_user.id
@@ -331,22 +291,19 @@ async def text_handler(client, message):
 
     if step == "wait_text_font":
         user_state[uid] = {"step": "wait_font_choice", "text": message.text}
-        await message.reply(
-            message.text,
-            reply_markup=font_kb()
-        )
+        await message.reply(message.text, reply_markup=font_kb())
 
     elif step == "wait_newname":
         state["new_name"] = message.text.strip()
         state["step"] = "wait_format"
         user_state[uid] = state
         await message.reply(
-            f"✅ New name set: **{message.text.strip()}**\n\nChoose output format:",
+            f"✅ New name: **{message.text.strip()}**\n\nChoose output format:",
             reply_markup=format_reply_kb()
         )
 
 # ─────────────────────────────────────────
-# REPLY KEYBOARD — Format choice handler
+# FORMAT CHOICE — reply keyboard
 # ─────────────────────────────────────────
 @app.on_message(
     filters.text & filters.private &
@@ -359,22 +316,12 @@ async def format_choice_handler(client, message):
     if state.get("step") != "wait_format":
         return
 
-    choice = message.text
-
-    if choice == "❌ Cancel":
+    if message.text == "❌ Cancel":
         user_state.pop(uid, None)
-        await message.reply(
-            "❌ Cancelled.",
-            reply_markup=remove_kb()
-        )
-        await message.reply(
-            "✨ **HeavenFall Utility Bot** ✨\n\nSelect an option below 👇",
-            reply_markup=main_menu_kb()
-        )
+        await message.reply("❌ Cancelled.", reply_markup=main_reply_kb())
         return
 
-    fmt = "document" if choice == "📄 Document" else "video"
-
+    fmt = "document" if message.text == "📄 Document" else "video"
     new_name = state["new_name"]
     file_id = state["file_id"]
     original_name = state.get("original_name", "file")
@@ -383,11 +330,9 @@ async def format_choice_handler(client, message):
     ext = ".mp4" if fmt == "video" else (orig_ext if orig_ext else ".pdf")
     final_name = new_name + ext
 
-    # Get thumbnail file_id from DB
+    # Thumbnail — download from file_id to /tmp
     user = get_user(uid)
     thumb_file_id = user.get("thumbnail_file_id")
-
-    # Download thumb to /tmp if we have a file_id for it
     thumb_path = None
     if thumb_file_id:
         thumb_path = f"/tmp/thumb_{uid}.jpg"
@@ -396,12 +341,15 @@ async def format_choice_handler(client, message):
         except:
             thumb_path = None
 
-    temp_download = f"/tmp/dl_{uid}_{message.id}{orig_ext or '.file'}"
+    # Unique temp paths per user+file
+    temp_download = f"/tmp/dl_{uid}_{message.id}{orig_ext or '.bin'}"
     temp_final = f"/tmp/out_{uid}_{message.id}{ext}"
 
     status_msg = await message.reply(
-        "⬇️ **Downloading...**\n\n`░░░░░░░░░░░░░░░░░░░░`\n\n**0%** — 0.00 MB / 0.00 MB",
-        reply_markup=remove_kb()
+        "⬇️ **Downloading...**\n\n"
+        "`░░░░░░░░░░░░░░░░░░░░`\n\n"
+        "**0.0%** — 0.00 MB / 0.00 MB",
+        reply_markup=main_reply_kb()
     )
 
     try:
@@ -413,13 +361,16 @@ async def format_choice_handler(client, message):
         )
 
         if not path or not os.path.exists(path):
-            await status_msg.edit_text("❌ Download failed. Try again.")
+            await status_msg.edit_text("❌ Download failed. Please try again.")
             return
 
+        # Rename the file
         os.rename(path, temp_final)
 
         await status_msg.edit_text(
-            "⬆️ **Uploading...**\n\n`░░░░░░░░░░░░░░░░░░░░`\n\n**0%** — 0.00 MB / 0.00 MB"
+            "⬆️ **Uploading...**\n\n"
+            "`░░░░░░░░░░░░░░░░░░░░`\n\n"
+            "**0.0%** — 0.00 MB / 0.00 MB"
         )
 
         if fmt == "video":
@@ -444,22 +395,19 @@ async def format_choice_handler(client, message):
             )
 
         await status_msg.edit_text(
-            f"✅ **Done!**\n\n`{final_name}` sent successfully.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📁 Rename Another", callback_data="menu_rename")],
-                [InlineKeyboardButton("🔙 Main Menu", callback_data="back_main")]
-            ])
+            f"✅ **Done!**\n\n`{final_name}` sent successfully."
         )
 
     except Exception as e:
-        await status_msg.edit_text(
-            f"❌ Error: `{e}`",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back", callback_data="back_main")]])
-        )
+        await status_msg.edit_text(f"❌ Error: `{e}`")
+
     finally:
         for f in [temp_download, temp_final, thumb_path]:
             if f and os.path.exists(f):
-                os.remove(f)
+                try:
+                    os.remove(f)
+                except:
+                    pass
         user_state.pop(uid, None)
 
 # ─────────────────────────────────────────
@@ -479,13 +427,15 @@ async def font_callback(client, callback_query):
     converted = convert_font(original, font_key)
 
     try:
-        await callback_query.message.edit_text(
-            converted,
-            reply_markup=font_kb()
-        )
+        await callback_query.message.edit_text(converted, reply_markup=font_kb())
         await callback_query.answer("✅ Font applied!")
     except Exception as e:
         await callback_query.answer(f"Error: {e}", show_alert=True)
+
+@app.on_callback_query(filters.regex("^back_main$"))
+async def cb_back(client, callback_query):
+    user_state.pop(callback_query.from_user.id, None)
+    await callback_query.message.delete()
 
 # ─────────────────────────────────────────
 # ADMIN: ADD / REMOVE PREMIUM
