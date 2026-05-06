@@ -811,11 +811,17 @@ async def rem_premium(client, message):
 # ─────────────────────────────────────────
 # STARTUP EVENT
 # ─────────────────────────────────────────
-async def main():
-    async with app:
-        await load_images(app)
-        print("HeavenFall Utility Bot is Alive...")
-        await asyncio.Event().wait()
+@app.on_message(filters.command("recacheimages") & filters.user(ADMINS))
+async def recache_images(client, message):
+    global IMG
+    if os.path.exists(IMG_CACHE_FILE):
+        os.remove(IMG_CACHE_FILE)
+    IMG = {}
+    await message.reply("🔄 Re-caching images...")
+    await load_images(client)
+    await message.reply("✅ Images re-cached successfully.")
 
-print("HeavenFall Utility Bot is Alive...")
-asyncio.run(main())
+async def startup():
+    await load_images(app)
+
+app.run(startup())
