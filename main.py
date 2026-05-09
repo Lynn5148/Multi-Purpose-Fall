@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-import aiohttp
+import urllib.request
 from pyrogram import Client, filters
 from pyrogram.types import (
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -18,67 +18,73 @@ DB_FILE = "users_db.json"
 IMG_CACHE_FILE = "img_cache.json"
 
 # ─────────────────────────────────────────
-# IMAGE URLS — downloaded once on startup
+# IMAGE URLS
 # ─────────────────────────────────────────
 IMAGE_URLS = {
-    "start":   "https://plain-apac-prod-public.komododecks.com/202605/06/XUaMU1y29VBWnGl3SjeP/image.jpg",
-    "rename":  "https://plain-apac-prod-public.komododecks.com/202605/06/QmxtOBa2q9EIum9HNdZQ/image.jpg",
-    "font":    "https://plain-apac-prod-public.komododecks.com/202605/06/alQ822mcjFA0h3mE2NW8/image.jpg",
-    "premium": "https://plain-apac-prod-public.komododecks.com/202605/06/OeNb54pavQiCP3azq9Z4/image.jpg",
+    "start":    "https://plain-apac-prod-public.komododecks.com/202605/06/XUaMU1y29VBWnGl3SjeP/image.jpg",
+    "rename":   "https://plain-apac-prod-public.komododecks.com/202605/06/QmxtOBa2q9EIum9HNdZQ/image.jpg",
+    "font":     "https://plain-apac-prod-public.komododecks.com/202605/06/alQ822mcjFA0h3mE2NW8/image.jpg",
+    "premium":  "https://plain-apac-prod-public.komododecks.com/202605/06/OeNb54pavQiCP3azq9Z4/image.jpg",
+    "channels": "https://plain-apac-prod-public.komododecks.com/202605/06/mOEaW5Vv5syrRuKbessY/image.jpg",
 }
 
-# Cached Telegram file_ids after first upload
-IMG = {}
+IMG_CACHE = {}
 
-async def load_images(client):
-    """Download images from URLs, upload to Telegram, cache file_ids."""
-    global IMG
-
-    # Load from cache if exists
+def load_img_cache():
+    global IMG_CACHE
     if os.path.exists(IMG_CACHE_FILE):
         try:
             with open(IMG_CACHE_FILE, "r") as f:
-                IMG = json.load(f)
-            print("✅ Images loaded from cache.")
-            return
+                IMG_CACHE = json.load(f)
         except:
-            pass
+            IMG_CACHE = {}
 
-    print("⬇️ Downloading images for first time...")
-    cache = {}
-
-    async with aiohttp.ClientSession() as session:
-        for key, url in IMAGE_URLS.items():
-            try:
-                async with session.get(url) as resp:
-                    if resp.status == 200:
-                        data = await resp.read()
-                        path = f"/tmp/img_{key}.jpg"
-                        with open(path, "wb") as f:
-                            f.write(data)
-
-                        # Send to admins[0] as a cache message
-                        msg = await client.send_photo(
-                            chat_id=ADMINS[0],
-                            photo=path,
-                            caption=f"[IMG CACHE: {key}]"
-                        )
-                        cache[key] = msg.photo.file_id
-                        os.remove(path)
-                        print(f"✅ Cached: {key}")
-                    else:
-                        print(f"❌ Failed to fetch {key}: HTTP {resp.status}")
-            except Exception as e:
-                print(f"❌ Error caching {key}: {e}")
-
-    IMG = cache
+def save_img_cache():
     with open(IMG_CACHE_FILE, "w") as f:
-        json.dump(cache, f)
-    print("✅ All images cached.")
+        json.dump(IMG_CACHE, f)
 
-def get_img(key):
-    """Get cached file_id or None"""
-    return IMG.get(key)
+async def get_img(key, client, fallback_chat_id):
+    """Lazy load — cache on first use, reuse file_id forever after."""
+    if key in IMG_CACHE:
+        return IMG_CACHE[key]
+
+    url = IMAGE_URLS.get(key)
+    if not url:
+        return None
+
+    try:
+        path = f"/tmp/img_{key}.jpg"
+        urllib.request.urlretrieve(url, path)
+        msg = await client.send_photo(
+            chat_id=fallback_chat_id,
+            photo=path,
+            caption=f"[IMG CACHE: {key}]"
+        )
+        file_id = msg.photo.file_id
+        IMG_CACHE[key] = file_id
+        save_img_cache()
+        os.remove(path)
+        return file_id
+    except Exception as e:
+        print(f"❌ Image cache failed for {key}: {e}")
+        return None
+
+async def send_img(message, key, caption, reply_markup=None):
+    """Send cached photo or fallback to text only."""
+    file_id = await get_img(key, message._client, message.from_user.id)
+    if file_id:
+        try:
+            await message.reply_photo(
+                photo=file_id,
+                caption=caption,
+                reply_markup=reply_markup
+            )
+            return
+        except Exception as e:
+            print(f"❌ send_img failed: {e}")
+            IMG_CACHE.pop(key, None)
+            save_img_cache()
+    await message.reply(caption, reply_markup=reply_markup)
 
 # ─────────────────────────────────────────
 # DATABASE
@@ -129,21 +135,6 @@ def get_stats():
     return total, premium
 
 # ─────────────────────────────────────────
-# SEND WITH PHOTO HELPER
-# ─────────────────────────────────────────
-async def send_img(message, img_key, caption, reply_markup=None):
-    """Send photo if cached, otherwise send text only."""
-    file_id = get_img(img_key)
-    if file_id:
-        await message.reply_photo(
-            photo=file_id,
-            caption=caption,
-            reply_markup=reply_markup
-        )
-    else:
-        await message.reply(caption, reply_markup=reply_markup)
-
-# ─────────────────────────────────────────
 # FAKE PROGRESS
 # ─────────────────────────────────────────
 async def fake_progress(status_msg, action, stop_event):
@@ -176,10 +167,27 @@ def main_reply_kb():
             [KeyboardButton("📁 Rename File"), KeyboardButton("🔤 Font Changer")],
             [KeyboardButton("🖼️ Set Thumbnail"), KeyboardButton("👁️ View Thumbnail")],
             [KeyboardButton("❌ Clear Thumbnail"), KeyboardButton("ℹ️ My Status")],
-            [KeyboardButton("👑 Premium")]
+            [KeyboardButton("👑 Premium"), KeyboardButton("🌐 HeavenFall Channels")]
         ],
         resize_keyboard=True
     )
+
+def channels_kb():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏠 Main Network", url="https://t.me/HeavenFallNetwork")],
+        [InlineKeyboardButton("📖 Cornhwa", url="https://t.me/+IHY2h3qLgjtmMzA1"),
+         InlineKeyboardButton("🌍 International", url="https://t.me/+VSAoNrs1NBBjOGY1")],
+        [InlineKeyboardButton("😈 Adult Videos", url="https://t.me/+K4ap0zrg6IA2MTI1"),
+         InlineKeyboardButton("💎 OnlyFans", url="https://t.me/+a0iGoOFSf4syYTQ1")],
+        [InlineKeyboardButton("🎭 Cosplay Girls", url="https://t.me/+ekqjAhNgFWJmN2Zl"),
+         InlineKeyboardButton("👩 Milf Videos", url="https://t.me/+HEQJRNDQGog5ZGVl")],
+        [InlineKeyboardButton("🎌 Hentai / Anime", url="https://t.me/+wb16uJ7ckM83NDJl"),
+         InlineKeyboardButton("📚 Doujinshi", url="https://t.me/doujinshi_adultmanga_fall")],
+        [InlineKeyboardButton("🎌 Japanese JAV", url="https://t.me/Javcorn_HeavenFall"),
+         InlineKeyboardButton("🇮🇳 Indian / Desi", url="https://t.me/+BwFvtFx-WNkwYzFl")],
+        [InlineKeyboardButton("👥 G@ngb@ng", url="https://t.me/+QXdo489mELkzOTdl"),
+         InlineKeyboardButton("🎭 Stickers NSFW", url="https://t.me/stickernsfwheavenfall")],
+    ])
 
 def font_kb():
     return InlineKeyboardMarkup([
@@ -218,7 +226,7 @@ def admin_kb():
     ])
 
 # ─────────────────────────────────────────
-# STARTUP — cache images
+# /start
 # ─────────────────────────────────────────
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
@@ -239,6 +247,7 @@ async def start(client, message):
             f"📁 **Rename** files with a custom name & thumbnail\n"
             f"🔤 **Convert** text into premium font styles\n"
             f"🖼️ **Store** a permanent thumbnail for all files\n"
+            f"🌐 **Explore** all HeavenFall channels\n"
             f"👑 **Upgrade** for unlimited access\n\n"
             f"_Select a feature from the menu below_ 👇"
         ),
@@ -323,7 +332,7 @@ async def admin_callbacks(client, callback_query):
         await callback_query.message.edit_text(
             "💥 **Reset User Account**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
-            "⚠️ This **permanently wipes** all data for the specified user.\n\n"
+            "⚠️ This **permanently wipes** all data for the user.\n\n"
             "Send the `user_id` to proceed:",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="adm_back")]])
         )
@@ -349,8 +358,15 @@ async def admin_callbacks(client, callback_query):
 # ─────────────────────────────────────────
 # MAIN REPLY KEYBOARD HANDLER
 # ─────────────────────────────────────────
+RESERVED = [
+    "📁 Rename File", "🔤 Font Changer", "🖼️ Set Thumbnail",
+    "👁️ View Thumbnail", "❌ Clear Thumbnail", "ℹ️ My Status",
+    "👑 Premium", "🌐 HeavenFall Channels"
+]
+
 @app.on_message(filters.text & filters.private & filters.regex(
-    "^(📁 Rename File|🔤 Font Changer|🖼️ Set Thumbnail|👁️ View Thumbnail|❌ Clear Thumbnail|ℹ️ My Status|👑 Premium)$"
+    "^(📁 Rename File|🔤 Font Changer|🖼️ Set Thumbnail|👁️ View Thumbnail"
+    "|❌ Clear Thumbnail|ℹ️ My Status|👑 Premium|🌐 HeavenFall Channels)$"
 ))
 async def main_kb_handler(client, message):
     uid = message.from_user.id
@@ -392,8 +408,7 @@ async def main_kb_handler(client, message):
                 "🖼️ **Set Thumbnail**\n"
                 "━━━━━━━━━━━━━━━━━━━━\n\n"
                 "Upload a photo to set as your **permanent default thumbnail**.\n\n"
-                "📌 It will be automatically applied to every file you rename —\n"
-                "no need to set it again.\n\n"
+                "📌 Applied automatically to every file you rename.\n\n"
                 "_Send your photo now_ 👇"
             )
         )
@@ -403,17 +418,14 @@ async def main_kb_handler(client, message):
         thumb_id = user.get("thumbnail_file_id")
         if not thumb_id:
             await message.reply(
-                "🖼️ **No Thumbnail Set**\n\n"
-                "You haven't configured a thumbnail yet.\n\n"
+                "🖼️ **No Thumbnail Configured**\n\n"
+                "You haven't set a thumbnail yet.\n\n"
                 "Tap **🖼️ Set Thumbnail** to upload one."
             )
         else:
             await message.reply_photo(
                 photo=thumb_id,
-                caption=(
-                    "🖼️ **Your Current Thumbnail**\n\n"
-                    "This image is applied to all files you rename."
-                )
+                caption="🖼️ **Your Current Thumbnail**\n\nApplied to all files you rename."
             )
 
     elif text == "❌ Clear Thumbnail":
@@ -421,9 +433,9 @@ async def main_kb_handler(client, message):
         user["thumbnail_file_id"] = None
         save_user(uid, user)
         await message.reply(
-            "🗑️ **Thumbnail Removed**\n\n"
-            "Your default thumbnail has been cleared.\n"
-            "Files will be sent without a custom thumbnail going forward."
+            "🗑️ **Thumbnail Cleared**\n\n"
+            "Your default thumbnail has been removed.\n"
+            "Files will be sent without a custom thumbnail."
         )
 
     elif text == "ℹ️ My Status":
@@ -476,6 +488,21 @@ async def main_kb_handler(client, message):
                 reply_markup=premium_kb()
             )
 
+    elif text == "🌐 HeavenFall Channels":
+        await send_img(
+            message, "channels",
+            caption=(
+                "🌐 **HeavenFall Network**\n"
+                "━━━━━━━━━━━━━━━━━━━━\n\n"
+                "🔞 **Premium Adult Content — Free of Charge**\n\n"
+                "Join our exclusive channels below.\n"
+                "Fresh content dropped daily across all categories.\n\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                "👇 **Tap any channel to join instantly**"
+            ),
+            reply_markup=channels_kb()
+        )
+
 # ─────────────────────────────────────────
 # THUMBNAIL PHOTO HANDLER
 # ─────────────────────────────────────────
@@ -491,8 +518,8 @@ async def photo_handler(client, message):
         user_state.pop(uid, None)
         await message.reply(
             "✅ **Thumbnail Saved**\n\n"
-            "Your thumbnail is locked in and will be automatically\n"
-            "applied to every file you rename. 🔒"
+            "Locked in and ready. Your thumbnail will be applied\n"
+            "automatically to every file you rename. 🔒"
         )
 
 # ─────────────────────────────────────────
@@ -539,11 +566,6 @@ async def file_handler(client, message):
 # ─────────────────────────────────────────
 # TEXT HANDLER
 # ─────────────────────────────────────────
-RESERVED = [
-    "📁 Rename File", "🔤 Font Changer", "🖼️ Set Thumbnail",
-    "👁️ View Thumbnail", "❌ Clear Thumbnail", "ℹ️ My Status", "👑 Premium"
-]
-
 @app.on_message(
     filters.text & filters.private &
     ~filters.command(["start", "admin", "addpremium", "rempremium"])
@@ -809,19 +831,8 @@ async def rem_premium(client, message):
         await message.reply(f"❌ Usage: `/rempremium <user_id>`\nError: {e}")
 
 # ─────────────────────────────────────────
-# STARTUP EVENT
+# RUN
 # ─────────────────────────────────────────
-@app.on_message(filters.command("recacheimages") & filters.user(ADMINS))
-async def recache_images(client, message):
-    global IMG
-    if os.path.exists(IMG_CACHE_FILE):
-        os.remove(IMG_CACHE_FILE)
-    IMG = {}
-    await message.reply("🔄 Re-caching images...")
-    await load_images(client)
-    await message.reply("✅ Images re-cached successfully.")
-
-async def startup():
-    await load_images(app)
-
-app.run(startup())
+load_img_cache()
+print("HeavenFall Utility Bot is Alive...")
+app.run()
