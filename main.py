@@ -1129,4 +1129,3 @@ async def rem_premium(client, message):
 load_img_cache()
 print("HeavenFall Utility Bot is Alive...")
 app.run()
- 
