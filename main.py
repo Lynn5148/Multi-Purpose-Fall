@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import asyncio
 import time
@@ -598,6 +599,12 @@ async def cmd_bulk_rename(client, message):
         f"Files will be renamed in the order received 👇"
     )
 
+def extract_num(filename):
+    """Extract last number from filename — handles ch12, [12], 12, Chapter 12, Vol.2 Ch.15 etc."""
+    name = os.path.splitext(filename)[0]
+    numbers = re.findall(r'\d+', name)
+    return int(numbers[-1]) if numbers else float('inf')
+
 # ─────────────────────────────────────────
 # /done COMMAND
 # ─────────────────────────────────────────
@@ -611,10 +618,30 @@ async def cmd_done(client, message):
     if not files:
         await message.reply("No files received yet. Send your files first, then /done.")
         return
+
+    # Auto-sort by number extracted from filename
+    try:
+        files_sorted = sorted(files, key=lambda f: extract_num(f["name"]))
+        was_sorted = [f["name"] for f in files_sorted] != [f["name"] for f in files]
+    except:
+        files_sorted = files
+        was_sorted = False
+
+    state["files"] = files_sorted
     state["step"] = "bulk_wait_name"
     user_state[uid] = state
+
+    sort_note = "\n\n🔢 **Auto-sorted by chapter number.**" if was_sorted else ""
+    # Show first 5 in order for confirmation
+    preview_lines = "\n".join(
+        f"`{i+1}. {f['name']}`" for i, f in enumerate(files_sorted[:5])
+    )
+    if len(files_sorted) > 5:
+        preview_lines += f"\n... and {len(files_sorted) - 5} more"
+
     await message.reply(
-        f"✅ **{len(files)} file(s) collected.**\n\n"
+        f"✅ **{len(files_sorted)} file(s) collected.**{sort_note}\n\n"
+        f"**Order they will be renamed:**\n{preview_lines}\n\n"
         f"Now send the **base name** for all files.\n\n"
         f"Example: `Tower of God`"
     )
@@ -935,7 +962,7 @@ async def bulk_callbacks(client, callback_query):
                 else:
                     await client.send_document(
                         chat_id=uid, document=temp_out,
-                        caption=f"`{final_name}`",
+                        caption=f"📄 `{final_name}`",
                         file_name=final_name, thumb=thumb_path
                     )
                 done += 1
@@ -1047,14 +1074,14 @@ async def do_rename(message, uid):
                 caption=f"🎬 `{final_name}`", file_name=final_name, thumb=thumb_path)
         else:
             await app.send_document(chat_id=uid, document=temp_final,
-                caption=f"`{final_name}`", file_name=final_name, thumb=thumb_path)
+                caption=f"📄 `{final_name}`", file_name=final_name, thumb=thumb_path)
 
         stop_ul.set()
         await prog_task2
 
         await status_msg.edit_text(
             f"✅ **Rename Complete**\n\n"
-            f"`{final_name}` has been delivered.\n\n"
+            f"📄 `{final_name}` has been delivered.\n\n"
             f"Send another file to rename it 📁"
         )
         user_state[uid] = {"step": "wait_file"}
@@ -1122,24 +1149,6 @@ async def rem_premium(client, message):
         await message.reply(f"✅ Premium removed from `{target_id}`")
     except Exception as e:
         await message.reply(f"❌ Error: {e}")
-
-@app.on_message(filters.command("debugimg") & filters.user(ADMINS))
-async def debug_img(client, message):
-    import urllib.request
-    url = "https://kommodo.ai/i/CvcKWCkMyVIhfyJBnuGz"
-    path = "/tmp/test_img.jpg"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            data = resp.read()
-            final_url = resp.url
-        with open(path, "wb") as f:
-            f.write(data)
-        size = os.path.getsize(path)
-        await message.reply(f"Download OK\nFinal URL: {final_url}\nSize: {size} bytes")
-        await message.reply_photo(photo=path, caption="Test image")
-    except Exception as e:
-        await message.reply(f"FAILED: {e}")
 
 # ─────────────────────────────────────────
 # RUN
