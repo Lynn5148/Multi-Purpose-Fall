@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import time
 import urllib.request
 from pyrogram import Client, filters
 from pyrogram.types import (
@@ -16,18 +17,19 @@ app = Client("utilbot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 user_state = {}
 DB_FILE = "users_db.json"
 IMG_CACHE_FILE = "img_cache.json"
-IMG_VERSION = "v3"
+IMG_VERSION = "v4"
 
 BULK_LIMIT_FREE = 10
 BULK_LIMIT_PREMIUM = 100
 
 IMAGE_URLS = {
-    "start":    "https://kommodo.ai/i/Huw2WXowbsS4e7jNJTRe",
-    "rename":   "https://kommodo.ai/i/2FhvOtUlNn3SqFd1AL2o",
-    "font":     "https://kommodo.ai/i/BYnxSvboaXVOjB8mL0yO",
-    "premium":  "https://kommodo.ai/i/xhMxtbvpsvegWQ6sDd2f",
-    "status":   "https://kommodo.ai/i/0HQF7nuy41kQNOlpu3fQ",
-    "channels": "https://kommodo.ai/i/etGiuFmB3XQlTjellm3Q",
+    "start":    "https://kommodo.ai/i/CvcKWCkMyVIhfyJBnuGz",
+    "rename":   "https://kommodo.ai/i/HmXYEMb2nsGg1svKdGt6",
+    "font":     "https://kommodo.ai/i/TuLS5WD04IB9QQ8oCoNe",
+    "premium":  "https://kommodo.ai/i/8DTtO57boWXtEaQk1HZO",
+    "status":   "https://kommodo.ai/i/0JHYKt67GvLOtdWfCXqq",
+    "bulk":     "https://kommodo.ai/i/G7gIWIZqzdiFJdxzV1h8",
+    "channels": "https://kommodo.ai/i/OGZBDAAhWOHCQkdE4CvU",
 }
 
 IMG_CACHE = {}
@@ -184,20 +186,31 @@ def consume_bulk_quota(user_id, count):
 # ─────────────────────────────────────────
 # PROGRESS
 # ─────────────────────────────────────────
-async def fake_progress(status_msg, action, stop_event):
-    steps = [0, 8, 18, 28, 40, 52, 63, 72, 80, 87, 92, 96]
-    emoji = "⬇️" if action == "dl" else "⬆️"
+async def fake_progress(status_msg, action, stop_event, total_mb=0):
+    start_time = time.time()
+    steps = [2, 8, 15, 24, 35, 47, 58, 68, 77, 84, 90, 95, 98]
     label = "Downloading" if action == "dl" else "Uploading"
     for pct in steps:
         if stop_event.is_set():
             break
+        elapsed = max(0.1, time.time() - start_time)
+        done_mb = total_mb * pct / 100 if total_mb else 0
+        speed = done_mb / elapsed if elapsed > 0 and done_mb > 0 else 0
+        remaining_mb = (total_mb - done_mb) if total_mb else 0
+        eta = int(remaining_mb / speed) if speed > 0 else 0
         filled = int(pct / 5)
-        bar = "▓" * filled + "░" * (20 - filled)
+        bar = "█" * filled + "░" * (20 - filled)
+        size_str = f"{done_mb:.2f} MB / {total_mb:.2f} MB" if total_mb else "Calculating..."
+        speed_str = f"{speed:.2f} MB/s" if speed > 0 else "..."
+        eta_str = f"{eta} sec" if eta > 1 else "< 1 sec"
         try:
             await status_msg.edit_text(
-                f"{emoji} **{label}...**\n\n"
+                f"**{label}...**\n\n"
                 f"`{bar}`\n\n"
-                f"**{pct}%** complete"
+                f"📁 **Size**  :  {size_str}\n"
+                f"⏳ **Done**  :  {pct:.1f}%\n"
+                f"🚀 **Speed** :  {speed_str}\n"
+                f"⏰ **ETA**   :  {eta_str}"
             )
         except:
             pass
@@ -447,7 +460,7 @@ async def main_kb_handler(client, message):
             return
         limit_txt = "Unlimited" if is_admin(uid) else f"{int(remaining)} files remaining this hour"
         user_state[uid] = {"step": "bulk_collecting", "files": []}
-        await send_img(message, "rename", caption=(
+        await send_img(message, "bulk", caption=(
             "📦 **Bulk Rename**\n"
             "━━━━━━━━━━━━━━━━━━━━\n\n"
             f"📊 **Quota:** {limit_txt}\n\n"
@@ -926,18 +939,17 @@ async def bulk_callbacks(client, callback_query):
                         file_name=final_name, thumb=thumb_path
                     )
                 done += 1
-                if done % 5 == 0 or done == allowed:
-                    pct = int(done / allowed * 100)
-                    filled = int(pct / 5)
-                    bar = "▓" * filled + "░" * (20 - filled)
-                    try:
-                        await status_msg.edit_text(
-                            f"⚙️ **Bulk Renaming...**\n\n"
-                            f"`{bar}`\n\n"
-                            f"✅ {done} of {allowed} files done"
-                        )
-                    except:
-                        pass
+                pct = int(done / allowed * 100)
+                filled = int(pct / 5)
+                bar = "█" * filled + "░" * (20 - filled)
+                try:
+                    await status_msg.edit_text(
+                        f"⚙️ **Bulk Renaming...**\n\n"
+                        f"`{bar}`\n\n"
+                        f"✅ {done} of {allowed} files done"
+                    )
+                except:
+                    pass
             except Exception as e:
                 failed += 1
                 print(f"Bulk error file {i}: {e}")
@@ -1009,7 +1021,7 @@ async def do_rename(message, uid):
     )
 
     stop_dl = asyncio.Event()
-    prog_task = asyncio.create_task(fake_progress(status_msg, "dl", stop_dl))
+    prog_task = asyncio.create_task(fake_progress(status_msg, "dl", stop_dl, file_size_mb))
 
     try:
         path = await app.download_media(file_id, file_name=temp_download)
@@ -1028,7 +1040,7 @@ async def do_rename(message, uid):
         )
 
         stop_ul = asyncio.Event()
-        prog_task2 = asyncio.create_task(fake_progress(status_msg, "ul", stop_ul))
+        prog_task2 = asyncio.create_task(fake_progress(status_msg, "ul", stop_ul, file_size_mb))
 
         if is_video:
             await app.send_video(chat_id=uid, video=temp_final,
@@ -1117,3 +1129,4 @@ async def rem_premium(client, message):
 load_img_cache()
 print("HeavenFall Utility Bot is Alive...")
 app.run()
+ 
