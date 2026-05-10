@@ -935,7 +935,7 @@ async def bulk_callbacks(client, callback_query):
                 else:
                     await client.send_document(
                         chat_id=uid, document=temp_out,
-                        caption=f"📄 `{final_name}`",
+                        caption=f"`{final_name}`",
                         file_name=final_name, thumb=thumb_path
                     )
                 done += 1
@@ -1047,14 +1047,14 @@ async def do_rename(message, uid):
                 caption=f"🎬 `{final_name}`", file_name=final_name, thumb=thumb_path)
         else:
             await app.send_document(chat_id=uid, document=temp_final,
-                caption=f"📄 `{final_name}`", file_name=final_name, thumb=thumb_path)
+                caption=f"`{final_name}`", file_name=final_name, thumb=thumb_path)
 
         stop_ul.set()
         await prog_task2
 
         await status_msg.edit_text(
             f"✅ **Rename Complete**\n\n"
-            f"📄 `{final_name}` has been delivered.\n\n"
+            f"`{final_name}` has been delivered.\n\n"
             f"Send another file to rename it 📁"
         )
         user_state[uid] = {"step": "wait_file"}
@@ -1122,6 +1122,24 @@ async def rem_premium(client, message):
         await message.reply(f"✅ Premium removed from `{target_id}`")
     except Exception as e:
         await message.reply(f"❌ Error: {e}")
+
+@app.on_message(filters.command("debugimg") & filters.user(ADMINS))
+async def debug_img(client, message):
+    import urllib.request
+    url = "https://kommodo.ai/i/CvcKWCkMyVIhfyJBnuGz"
+    path = "/tmp/test_img.jpg"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = resp.read()
+            final_url = resp.url
+        with open(path, "wb") as f:
+            f.write(data)
+        size = os.path.getsize(path)
+        await message.reply(f"Download OK\nFinal URL: {final_url}\nSize: {size} bytes")
+        await message.reply_photo(photo=path, caption="Test image")
+    except Exception as e:
+        await message.reply(f"FAILED: {e}")
 
 # ─────────────────────────────────────────
 # RUN
