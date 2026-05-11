@@ -95,16 +95,25 @@ async def send_img(message, key, caption, reply_markup=None):
 # ─────────────────────────────────────────
 # DATABASE
 # ─────────────────────────────────────────
+_db_cache = None
+
 def load_db():
+    global _db_cache
+    if _db_cache is not None:
+        return _db_cache
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r") as f:
-                return json.load(f)
+                _db_cache = json.load(f)
+                return _db_cache
         except:
-            return {}
-    return {}
+            pass
+    _db_cache = {}
+    return _db_cache
 
 def save_db(db):
+    global _db_cache
+    _db_cache = db
     with open(DB_FILE, "w") as f:
         json.dump(db, f, indent=4)
 
@@ -956,13 +965,13 @@ async def bulk_callbacks(client, callback_query):
                 if is_video:
                     await client.send_video(
                         chat_id=uid, video=temp_out,
-                        caption=f"🎬 `{final_name}`",
+                        caption=final_name,
                         file_name=final_name, thumb=thumb_path
                     )
                 else:
                     await client.send_document(
                         chat_id=uid, document=temp_out,
-                        caption=f"📄 `{final_name}`",
+                        caption=final_name,
                         file_name=final_name, thumb=thumb_path
                     )
                 done += 1
@@ -1023,6 +1032,7 @@ async def do_rename(message, uid):
     file_id = state["file_id"]
     original_name = state.get("original_name", "file")
     mime = state.get("mime_type", "")
+    file_size_mb = state.get("file_size", 0)  # FIX: was undefined before
     _, orig_ext = os.path.splitext(original_name)
     ext = orig_ext if orig_ext else ".pdf"
     final_name = new_name + ext
@@ -1071,10 +1081,10 @@ async def do_rename(message, uid):
 
         if is_video:
             await app.send_video(chat_id=uid, video=temp_final,
-                caption=f"🎬 `{final_name}`", file_name=final_name, thumb=thumb_path)
+                caption=final_name, file_name=final_name, thumb=thumb_path)
         else:
             await app.send_document(chat_id=uid, document=temp_final,
-                caption=f"📄 `{final_name}`", file_name=final_name, thumb=thumb_path)
+                caption=final_name, file_name=final_name, thumb=thumb_path)
 
         stop_ul.set()
         await prog_task2
